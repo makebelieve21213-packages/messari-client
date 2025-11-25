@@ -1,0 +1,193 @@
+# @packages/messari-client - Документация для ИИ
+
+## Краткое описание
+
+Messari API клиент для NestJS с поддержкой TypeScript и полной типобезопасностью. Предоставляет готовый NestJS глобальный модуль для простой интеграции и работы с Messari API.
+
+## Архитектура
+
+Пакет предоставляет NestJS глобальный модуль `MessariModule` для работы с Messari API через HTTP запросы.
+
+## Структура пакета
+
+```
+src/
+├── main/                                 # NestJS модуль
+│   ├── messari-client.module.ts          # MessariModule - глобальный модуль
+│   └── messari-client.service.ts         # MessariService - основной сервис
+│
+├── types/                                # TypeScript типы и интерфейсы
+│   ├── module-options.interface.ts       # Опции модуля
+│   └── api-types.ts                      # Типы для API (MessariAsset, MessariAssetDetails, MessariNews, MessariSearchResult)
+│
+├── utils/                                # Утилиты
+│   └── injection-keys.ts                 # Ключи для DI
+│
+└── index.ts                              # Точка входа - экспорты всех публичных API
+```
+
+## Основные компоненты
+
+### MessariModule
+
+NestJS глобальный модуль для регистрации MessariService. Поддерживает асинхронную регистрацию:
+- `forRootAsync(options)` - асинхронная конфигурация через useFactory
+- Экспортирует `MessariService` глобально
+
+### MessariService
+
+Сервис для работы с Messari API:
+- Конструктор принимает `MessariModuleOptions` через DI
+- `getTopAssets(limit)` - получение списка топ криптовалютных активов с ограничением по количеству
+- `getAsset(assetKey)` - получение детальной информации об активе включая метрики и профиль
+- `getAssetNews(assetKey, limit)` - получение новостей связанных с конкретным активом
+- `getGeneralNews(limit)` - получение общих новостей криптовалютного рынка
+- `searchAssets(query)` - выполнение поиска активов по запросу
+
+### MessariModuleOptions
+
+Конфигурация для настройки клиента:
+- `apiKey` - API ключ Messari (обязательно)
+- `baseUrl` - базовый URL API (опционально, по умолчанию: https://data.messari.io/api/v1)
+- `timeout` - таймаут запросов в миллисекундах (опционально, по умолчанию: 30000)
+
+### Типы данных
+
+Пакет экспортирует следующие типы:
+- `MessariAsset` - криптовалютный актив с базовыми метриками (цена, объем, рыночная капитализация)
+- `MessariAssetDetails` - детальная информация об активе включая расширенные метрики и профиль
+- `MessariNews` - новость с информацией о публикации, авторе и связанных активах
+- `MessariSearchResult` - результат поиска активов
+
+## Использование
+
+### Создание конфигурации в сервисе
+
+Создайте файл конфигурации в вашем сервисе (например, `services/chat-service/src/configs/messari.config.ts`):
+
+```typescript
+// messari.config.ts
+import { registerAs } from "@nestjs/config";
+import type { MessariModuleOptions } from "@packages/messari-client";
+import { EnvVariable } from "src/types/enums";
+
+export type MessariConfiguration = MessariModuleOptions;
+
+const messariConfig = registerAs<MessariConfiguration>(
+  "messari",
+  (): MessariConfiguration => {
+    const apiKey = process.env[EnvVariable.MESSARI_API_KEY];
+    
+    if (!apiKey) {
+      throw new Error("MESSARI_API_KEY is required");
+    }
+    
+    return {
+      apiKey,
+      baseUrl: process.env[EnvVariable.MESSARI_BASE_URL] || "https://data.messari.io/api/v1",
+      timeout: Number(process.env[EnvVariable.MESSARI_TIMEOUT]) || 30000,
+    };
+  },
+);
+
+export default messariConfig;
+```
+
+### Регистрация модуля
+
+```typescript
+// app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { MessariModule } from '@packages/messari-client';
+import messariConfig from 'src/configs/messari.config';
+import type { MessariConfiguration } from 'src/configs/messari.config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [messariConfig],
+    }),
+    MessariModule.forRootAsync<[MessariConfiguration]>({
+      useFactory: (config: MessariConfiguration) => config,
+      inject: [messariConfig.KEY],
+      imports: [ConfigModule],
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+### Использование сервиса
+
+```typescript
+// crypto-data.service.ts
+import { Injectable } from '@nestjs/common';
+import { MessariService } from '@packages/messari-client';
+import type { MessariAsset, MessariAssetDetails, MessariNews, MessariSearchResult } from '@packages/messari-client';
+
+@Injectable()
+export class CryptoDataService {
+  constructor(private readonly messari: MessariService) {}
+
+  async getTopCryptoAssets(limit: number = 100): Promise<MessariAsset[]> {
+    return await this.messari.getTopAssets(limit);
+  }
+
+  async getCryptoAssetDetails(assetKey: string): Promise<MessariAssetDetails> {
+    return await this.messari.getAsset(assetKey);
+  }
+
+  async getAssetNews(assetKey: string, limit: number = 20): Promise<MessariNews[]> {
+    return await this.messari.getAssetNews(assetKey, limit);
+  }
+
+  async getGeneralCryptoNews(limit: number = 20): Promise<MessariNews[]> {
+    return await this.messari.getGeneralNews(limit);
+  }
+
+  async searchCryptoAssets(query: string): Promise<MessariSearchResult[]> {
+    return await this.messari.searchAssets(query);
+  }
+}
+```
+
+## Переменные окружения
+
+- `MESSARI_API_KEY` - API ключ Messari (обязательно)
+- `MESSARI_BASE_URL` - Базовый URL API (опционально, по умолчанию: `https://data.messari.io/api/v1`)
+- `MESSARI_TIMEOUT` - Таймаут запросов в миллисекундах (опционально, по умолчанию: `30000`)
+
+## Экспорты (index.ts)
+
+Пакет экспортирует:
+
+Модули:
+- `MessariModule` (default export)
+
+Сервисы:
+- `MessariService` (default export)
+
+Типы:
+- `MessariModuleOptions` / `MessariModuleAsyncOptions`
+- `MessariAsset`, `MessariAssetDetails`, `MessariNews`, `MessariSearchResult`
+
+## Важные замечания
+
+1. **Конфигурация**: Конфигурация должна создаваться в сервисе, который использует пакет, а не в самом пакете
+2. **API ключ**: Обязательно требуется для всех запросов к Messari API
+3. **Таймауты**: По умолчанию 30 секунд, можно переопределить в конфигурации
+4. **Обработка ошибок**: Все ошибки логируются через `LoggerService` из `@makebelieve21213-packages/logger`
+5. **Аутентификация**: API ключ передается в заголовке `x-messari-api-key`
+
+## Тестирование
+
+Пакет имеет 100% покрытие тестами. Все компоненты протестированы через Jest.
+
+## Зависимости
+
+- `@nestjs/common` - NestJS core
+- `@nestjs/config` - NestJS config (опционально, для async конфигурации)
+- `@makebelieve21213-packages/logger` - Логирование
+- `reflect-metadata` - TypeScript decorators
